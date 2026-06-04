@@ -7,6 +7,7 @@ from typing import Sequence, TypeAlias, Iterable, Awaitable, Any
 from .message import ToolUse, Message, ToolResult
 from .middleware import MiddlewareStack, MiddlewareHandler, Middleware
 from .tool import Tool
+from .exceptions import SuspensionError
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,9 @@ class BaseToolExecutionHandler(ToolExecutionHandler):
                 result=result,
                 is_error=False
             )
+        except SuspensionError as e:
+            logger.warning(f'Encountered Suspension Request during tool execution.')
+            raise
         except Exception as e:
             logger.exception(f'Error executing tool {tool.name} with params {tool_use["params"]}')
             return ToolResult(

@@ -7,7 +7,7 @@ from .tool_execution import ToolExecutionHandler
 from .middleware import MiddlewareHandler, Middleware, MiddlewareStack
 from .stream_iteration import StreamIterationContext, StreamContextBase, StreamIterationHandler
 from .message import Message, ToolUse, ToolMessage
-
+from .exceptions import SuspensionError
 
 @dataclass
 class StreamContext(StreamContextBase):
@@ -51,7 +51,7 @@ class BaseStreamHandler(StreamHandler):
                 break
 
             # noinspection PyProtectedMember
-            results_by_parent = await use_tools(tool_uses_by_parent, current_history, ctx.tools, iteration,
+            results_by_parent, suspensions = await use_tools(tool_uses_by_parent, current_history, ctx.tools, iteration,
                                                 ctx._tool_execution_handler)
 
             for parent_id, results in results_by_parent.items():
@@ -64,3 +64,6 @@ class BaseStreamHandler(StreamHandler):
 
                 yield tool_result_message
                 current_history.append(tool_result_message)
+
+            if len(suspensions) > 0:
+                raise SuspensionError(children=suspensions, message="Found suspension requests by tools")

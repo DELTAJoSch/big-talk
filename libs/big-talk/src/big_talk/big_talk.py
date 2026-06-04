@@ -9,6 +9,7 @@ from .stream_iteration import StreamIterationMiddlewareStack, BaseStreamIteratio
 from .tool import Tool
 from .llm import LLMProvider, LLMProviderFactory
 from .message import Message, ToolUse, ToolMessage
+from .exceptions import SuspensionError
 from .tool_execution import ToolExecutionMiddlewareStack, BaseToolExecutionHandler, ToolExecutionContext
 
 DEFAULT_MAX_ITERATIONS = 10
@@ -87,7 +88,7 @@ class BigTalk:
             if not tool_uses_by_parent:
                 break
 
-            results_by_parent = await use_tools(tool_uses_by_parent, current_history, normalized_tools, iteration,
+            results_by_parent, suspensions = await use_tools(tool_uses_by_parent, current_history, normalized_tools, iteration,
                                                 tool_execution_handler)
 
             for parent_id, results in results_by_parent.items():
@@ -99,6 +100,9 @@ class BigTalk:
                 )
 
                 current_history.append(tool_result_message)
+            
+            if len(suspensions) > 0:
+                raise SuspensionError(children=suspensions, message="Found Suspension requests in tool calls")
 
         return current_history[len(messages):]
 
@@ -151,6 +155,7 @@ class BigTalk:
 
         handler = self._tool_execution.build()
         tasks = await handler(context)
+        # Fine here, Loop Suspensions just get raised and surface here
         results = await asyncio.gather(*tasks)
 
         if not results:
