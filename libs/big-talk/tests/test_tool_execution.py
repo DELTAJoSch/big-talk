@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from big_talk import AssistantMessage, ToolUse, Text
+from big_talk import AssistantMessage, ToolUse, Text, SuspensionError
 from tests.helpers import MockToolProvider
 
 
@@ -311,4 +311,56 @@ async def test_batch_tool_execution_grouping(bigtalk, simple_message):
 
     assert res_A['content'][0]['result'] == "1"
     assert res_B['content'][0]['result'] == "2"
+
+
+@pytest.mark.asyncio
+async def test_suspension_in_one_block_yields_other(bigtalk, simple_message):
+    """
+    Two tool use blocks (different parent messages). Middleware raises SuspensionError
+    for one tool, the other succeeds. Verify only the successful block yields a ToolMessage
+    and SuspensionError propagates after.
+    """
+
+    async def normal_tool():
+        return "success"
+
+    async def suspend_tool():
+        return "would succeed"
+
+    @bigtalk.tool_execution.use
+    async def suspension_middleware(handler, ctx, **kwargs):
+        tasks = list(await handler(ctx, **kwargs))
+
+        async def maybe_suspend(task, tool_use):
+            if tool_use['name'] == 'suspend_tool':
+                task.close()
+                raise SuspensionError(details="checkpoint", message="needs approval")
+            return await task
+
+        return [maybe_suspend(t, tu) for t, tu in zip(tasks, ctx.tool_uses)]
+
+    msg_normal = AssistantMessage(
+        role="assistant",
+        content=[ToolUse(type="tool_use", id="c1", name="normal_tool", params={})],
+        id="parent_A", parent_id="p", is_aggregate=True
+    )
+    msg_suspend = AssistantMessage(
+        role="assistant",
+        content=[ToolUse(type="tool_use", id="c2", name="suspend_tool", params={})],
+        id="parent_B", parent_id="p", is_aggregate=True
+    )
+
+    bigtalk.add_provider("test", lambda: MockToolProvider([msg_normal, msg_suspend]))
+
+    tool_messages = []
+
+    with pytest.raises(SuspensionError) as exc_info:
+        async for msg in bigtalk.stream("test/model", [simple_message], tools=[normal_tool, suspend_tool]):
+            if msg['role'] == 'tool':
+                tool_messages.append(msg)
+
+    assert len(tool_messages) == 1
+    assert tool_messages[0]['parent_id'] == 'parent_A'
+    assert tool_messages[0]['content'][0]['result'] == 'success'
+    assert 'parent_B' in exc_info.value.children
 
