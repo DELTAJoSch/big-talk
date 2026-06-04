@@ -7,16 +7,19 @@ class SuspensionError(Exception):
     Args:
         details: Optional context about why the loop was suspended (e.g. a
             checkpoint object or status message). Available as ``self.details``.
-        *args: Forwarded to ``Exception.__init__``.
+        children: Optional map of parent IDs to child suspension errors, used
+            when multiple tools suspended in the same iteration.
+        message: Optional human-readable message passed to ``Exception.__init__``.
 
     Example::
 
-        raise SuspensionError({"checkpoint": state}, "human approval required")
+        raise SuspensionError({"checkpoint": state}, message="human approval required")
     """
 
-    def __init__(self, details: object = None, *args):
+    def __init__(self, details: object = None, children: dict[str, list['SuspensionError']] = None, message: str = None):
         self.details = details
-        super().__init__(*args)
+        self.children = children
+        super().__init__(message)
 
     def __str__(self):
         if self.details is None:
