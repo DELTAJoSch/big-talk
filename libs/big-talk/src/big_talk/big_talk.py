@@ -99,7 +99,7 @@ class BigTalk:
                 )
 
                 current_history.append(tool_result_message)
-
+            
         return current_history[len(messages):]
 
     async def stream(self,
@@ -151,6 +151,7 @@ class BigTalk:
 
         handler = self._tool_execution.build()
         tasks = await handler(context)
+        # Fine here, Loop Suspensions just get raised and surface here
         results = await asyncio.gather(*tasks)
 
         if not results:

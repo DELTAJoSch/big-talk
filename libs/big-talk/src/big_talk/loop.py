@@ -4,6 +4,7 @@ from typing import Sequence
 
 from .tool import Tool
 from .tool_execution import ToolExecutionContext, ToolExecutionHandler
+from .exceptions import BatchSuspendedException, SuspensionError
 from .message import OutputMessage, ToolUse, Message, ToolResult
 
 
@@ -30,10 +31,20 @@ async def use_tools(tool_uses_by_parent: list[tuple[str, ToolUse]], messages: Se
     )
 
     tool_tasks = await tool_execution_handler(tool_execution_ctx)
-    tool_results = await asyncio.gather(*tool_tasks)
 
-    results_by_parent = defaultdict(list)
-    for (parent_id, _), result in zip(tool_uses_by_parent, tool_results):
-        results_by_parent[parent_id].append(result)
+    # Only SuspensionError should ever pop up here
+    raw_tool_results = await asyncio.gather(*tool_tasks, return_exceptions=True)
 
-    return results_by_parent
+    suspension_results: dict[str, list[SuspensionError]] = defaultdict(list)
+    results_by_parent: dict[str, list[ToolResult]] = defaultdict(list)
+
+    for (parent_id, _), result in zip(tool_uses_by_parent, raw_tool_results):
+        if isinstance(result, SuspensionError):
+            suspension_results[parent_id].append(result)
+        else:
+            results_by_parent[parent_id].append(result)
+
+    if len(suspension_results) > 0:
+        raise BatchSuspendedException(suspensions=suspension_results, partial_results=results_by_parent)
+
+    return dict(results_by_parent)

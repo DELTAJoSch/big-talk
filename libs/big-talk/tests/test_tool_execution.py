@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from big_talk import AssistantMessage, ToolUse, Text
+from big_talk import AssistantMessage, ToolUse, Text, SuspensionError, BatchSuspendedException
 from tests.helpers import MockToolProvider
 
 
@@ -311,4 +311,138 @@ async def test_batch_tool_execution_grouping(bigtalk, simple_message):
 
     assert res_A['content'][0]['result'] == "1"
     assert res_B['content'][0]['result'] == "2"
+
+
+@pytest.mark.asyncio
+async def test_partial_batch_suspension(bigtalk, simple_message):
+    """
+    One tool suspends, one succeeds. BatchSuspendedException is raised carrying
+    the suspension and the partial result. The loop halts — no ToolMessage is yielded.
+    """
+
+    async def normal_tool():
+        return "success"
+
+    async def suspend_tool():
+        return "would succeed"
+
+    @bigtalk.tool_execution.use
+    async def suspension_middleware(handler, ctx, **kwargs):
+        tasks = list(await handler(ctx, **kwargs))
+
+        async def maybe_suspend(task, tool_use):
+            if tool_use['name'] == 'suspend_tool':
+                task.close()
+                raise SuspensionError(details="checkpoint")
+            return await task
+
+        return [maybe_suspend(t, tu) for t, tu in zip(tasks, ctx.tool_uses)]
+
+    msg = AssistantMessage(
+        role="assistant",
+        content=[
+            ToolUse(type="tool_use", id="c1", name="normal_tool", params={}),
+            ToolUse(type="tool_use", id="c2", name="suspend_tool", params={}),
+        ],
+        id="parent_A", parent_id="p", is_aggregate=True
+    )
+
+    bigtalk.add_provider("test", lambda: MockToolProvider([msg]))
+
+    tool_messages = []
+    with pytest.raises(BatchSuspendedException) as exc_info:
+        async for msg in bigtalk.stream("test/model", [simple_message], tools=[normal_tool, suspend_tool]):
+            if msg['role'] == 'tool':
+                tool_messages.append(msg)
+
+    assert len(tool_messages) == 0
+
+    exc = exc_info.value
+    assert 'parent_A' in exc.suspensions
+    assert exc.suspensions['parent_A'][0].details == "checkpoint"
+    assert 'parent_A' in exc.partial_results
+    assert exc.partial_results['parent_A'][0]['result'] == 'success'
+
+
+@pytest.mark.asyncio
+async def test_full_batch_suspension_empty_partial_results(bigtalk, simple_message):
+    """
+    All tools in the batch suspend — partial_results is empty.
+    """
+
+    async def tool_a():
+        return "a"
+
+    async def tool_b():
+        return "b"
+
+    async def suspend_all(handler, ctx, **kwargs):
+        tasks = list(await handler(ctx, **kwargs))
+
+        async def do_suspend(task):
+            task.close()
+            raise SuspensionError(details="approval required")
+
+        return [do_suspend(t) for t in tasks]
+
+    bigtalk.tool_execution.use(suspend_all)
+
+    msg = AssistantMessage(
+        role="assistant",
+        content=[
+            ToolUse(type="tool_use", id="c1", name="tool_a", params={}),
+            ToolUse(type="tool_use", id="c2", name="tool_b", params={}),
+        ],
+        id="parent_A", parent_id="p", is_aggregate=True
+    )
+
+    bigtalk.add_provider("test", lambda: MockToolProvider([msg]))
+
+    with pytest.raises(BatchSuspendedException) as exc_info:
+        async for _ in bigtalk.stream("test/model", [simple_message], tools=[tool_a, tool_b]):
+            pass
+
+    exc = exc_info.value
+    assert len(exc.suspensions) == 1
+    assert len(exc.suspensions['parent_A']) == 2
+    assert len(exc.partial_results) == 0
+
+
+@pytest.mark.asyncio
+async def test_suspension_details_preserved_in_batch_exception(bigtalk, simple_message):
+    """
+    SuspensionError.details survive wrapping into BatchSuspendedException,
+    so callers can persist HITL checkpoint payloads.
+    """
+
+    checkpoint = {"tool": "my_tool", "params": {"x": 42}, "state": "pending"}
+
+    async def my_tool(x: int):
+        return x
+
+    async def suspend_with_checkpoint(handler, ctx, **kwargs):
+        tasks = list(await handler(ctx, **kwargs))
+
+        async def do_suspend(task):
+            task.close()
+            raise SuspensionError(details=checkpoint)
+
+        return [do_suspend(t) for t in tasks]
+
+    bigtalk.tool_execution.use(suspend_with_checkpoint)
+
+    msg = AssistantMessage(
+        role="assistant",
+        content=[ToolUse(type="tool_use", id="c1", name="my_tool", params={"x": 42})],
+        id="parent_A", parent_id="p", is_aggregate=True
+    )
+
+    bigtalk.add_provider("test", lambda: MockToolProvider([msg]))
+
+    with pytest.raises(BatchSuspendedException) as exc_info:
+        async for _ in bigtalk.stream("test/model", [simple_message], tools=[my_tool]):
+            pass
+
+    suspension = exc_info.value.suspensions['parent_A'][0]
+    assert suspension.details == checkpoint
 
