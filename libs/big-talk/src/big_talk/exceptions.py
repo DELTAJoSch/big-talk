@@ -1,3 +1,6 @@
+from big_talk.message import ToolResult
+
+
 class SuspensionError(Exception):
     """Raised by a Middleware to suspend the agentic loop.
 
@@ -25,3 +28,15 @@ class SuspensionError(Exception):
         if self.details is None:
             return super().__str__()
         return f"LoopSuspensionError: The Agent Loop was Suspended with the following details: {self.details}"
+
+class BatchSuspendedException(Exception):
+    """
+    Raised when a batch of tools is interrupted by a HITL suspension.
+    Carries both the tools that require approval and the tools that 
+    already successfully completed in the parallel batch.
+    """
+    def __init__(self, suspensions: dict[str, list[SuspensionError]], partial_results: dict[str, list[ToolResult]]):
+        self.suspensions = suspensions
+        self.partial_results = partial_results
+        super().__init__(f"Batch suspended: {len(suspensions)} pending approvals, {len(partial_results)} completed results.")
+        

@@ -4,7 +4,7 @@ from typing import Sequence
 
 from .tool import Tool
 from .tool_execution import ToolExecutionContext, ToolExecutionHandler
-from .exceptions import SuspensionError
+from .exceptions import BatchSuspendedException, SuspensionError
 from .message import OutputMessage, ToolUse, Message, ToolResult
 
 
@@ -20,7 +20,7 @@ def extract_tool_uses(message: OutputMessage) -> list[tuple[str, ToolUse]]:
 
 
 async def use_tools(tool_uses_by_parent: list[tuple[str, ToolUse]], messages: Sequence[Message], tools: Sequence[Tool],
-                    iteration: int, tool_execution_handler: ToolExecutionHandler) -> tuple[dict[str, list[ToolResult]], dict[str, list[SuspensionError]]]:
+                    iteration: int, tool_execution_handler: ToolExecutionHandler) -> dict[str, list[ToolResult]]:
     tool_uses = [tu for _, tu in tool_uses_by_parent]
 
     tool_execution_ctx = ToolExecutionContext(
@@ -44,4 +44,7 @@ async def use_tools(tool_uses_by_parent: list[tuple[str, ToolUse]], messages: Se
         else:
             results_by_parent[parent_id].append(result)
 
-    return dict(results_by_parent), dict(suspension_results)
+    if len(suspension_results) > 0:
+        raise BatchSuspendedException(suspensions=suspension_results, partial_results=results_by_parent)
+
+    return dict(results_by_parent)
