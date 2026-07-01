@@ -29,6 +29,7 @@ class BaseStreamHandler(StreamHandler):
         for iteration in range(ctx.max_iterations):
             # noinspection PyProtectedMember
             stream_ctx = StreamIterationContext(model=ctx.model, tools=ctx.tools, messages=current_history,
+                                                stream_deltas=ctx.stream_deltas,
                                                 _provider_resolver=ctx._provider_resolver, iteration=iteration)
 
             tool_uses_by_parent: list[tuple[str, ToolUse]] = []

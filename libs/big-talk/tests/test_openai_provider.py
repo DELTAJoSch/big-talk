@@ -106,6 +106,66 @@ def test_openai_token_counting_with_tools(openai_provider):
     assert count > 0
 
 
+@pytest.mark.asyncio
+async def test_openai_stream_deltas_text(openai_provider):
+    """Text deltas are emitted with type='text' when stream_deltas=True."""
+    mock_stream = AsyncMock()
+    mock_stream.__aiter__.return_value = [
+        create_chunk(text="Hello"),
+        create_chunk(text=" world"),
+    ]
+    openai_provider._client.chat.completions.create.return_value = mock_stream
+
+    stream = openai_provider.stream("gpt-4", [UserMessage(role="user", content="Hi", id="u1")], tools=[],
+                                    stream_deltas=True)
+    results = [msg async for msg in stream]
+
+    deltas = [r for r in results if 'delta' in r]
+    assert len(deltas) == 2
+    assert deltas[0]['type'] == 'text'
+    assert deltas[0]['delta'] == "Hello"
+    assert deltas[0]['role'] == 'assistant'
+    assert deltas[0]['is_aggregate'] is False
+    assert deltas[1]['delta'] == " world"
+
+
+@pytest.mark.asyncio
+async def test_openai_no_deltas_by_default(openai_provider):
+    """No AssistantMessageDelta is emitted when stream_deltas=False (default)."""
+    mock_stream = AsyncMock()
+    mock_stream.__aiter__.return_value = [
+        create_chunk(text="Hello"),
+        create_chunk(text=" world"),
+    ]
+    openai_provider._client.chat.completions.create.return_value = mock_stream
+
+    stream = openai_provider.stream("gpt-4", [UserMessage(role="user", content="Hi", id="u1")], tools=[])
+    results = [msg async for msg in stream]
+
+    assert all('delta' not in r for r in results)
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_deltas_tool_use(openai_provider):
+    """Tool-use deltas (id, name, params) are emitted when stream_deltas=True."""
+    mock_stream = AsyncMock()
+    mock_stream.__aiter__.return_value = [
+        create_chunk(tool_calls=create_tool_chunk(0, id="call_1", name="my_tool", args=None)),
+        create_chunk(tool_calls=create_tool_chunk(0, id=None, name=None, args='{"x":1}')),
+    ]
+    openai_provider._client.chat.completions.create.return_value = mock_stream
+
+    stream = openai_provider.stream("gpt-4", [UserMessage(role="user", content="Hi", id="u1")], tools=[],
+                                    stream_deltas=True)
+    results = [msg async for msg in stream]
+
+    deltas = [r for r in results if 'delta' in r]
+    delta_types = {d['type'] for d in deltas}
+    assert 'tool_use_id' in delta_types
+    assert 'tool_use_name' in delta_types
+    assert 'tool_use_params' in delta_types
+
+
 def test_openai_init_kwargs():
     """Test that kwargs are passed to the underlying AsyncOpenAI client."""
 
