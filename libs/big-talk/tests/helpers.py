@@ -1,7 +1,7 @@
 import asyncio
 from typing import AsyncGenerator, Sequence
 from big_talk.llm import LLMProvider
-from big_talk import Message, AssistantMessage, Text, Tool
+from big_talk import Message, AssistantMessage, Text, Tool, AssistantMessageDelta
 from big_talk.stream_iteration import StreamIterationContext, StreamIterationHandler
 
 
@@ -36,7 +36,7 @@ class TestLLMProvider(LLMProvider):
     async def send(self, model: str, messages: Sequence[Message], tools: Sequence[Tool], **kwargs) -> AssistantMessage:
         pass
 
-    async def stream(self, model: str, messages: Sequence[Message], **kwargs) -> AsyncGenerator[AssistantMessage, None]:
+    async def stream(self, model: str, messages: Sequence[Message], **kwargs) -> AsyncGenerator[AssistantMessage | AssistantMessageDelta, None]:
         # Store calls for verification
         self.stream_calls.append({
             "model": model,
@@ -48,10 +48,23 @@ class TestLLMProvider(LLMProvider):
             raise RuntimeError(f"Simulated failure in {self.name}")
 
         for content in self.responses:
+            msg_id = "test-id"
+            parent_id = "parent-id"
+
+            if kwargs.get('stream_deltas'):
+                yield AssistantMessageDelta(
+                    type='text',
+                    id=msg_id,
+                    role='assistant',
+                    delta=content,
+                    parent_id=parent_id,
+                    is_aggregate=False,
+                )
+
             yield AssistantMessage(role="assistant",
                                    content=[Text(type="text", text=content)],
-                                   id="test-id",
-                                   parent_id="parent-id",
+                                   id=msg_id,
+                                   parent_id=parent_id,
                                    is_aggregate=True)
             await asyncio.sleep(0.001)
 

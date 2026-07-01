@@ -13,6 +13,7 @@ class StreamContextBase(ABC):
     model: str
     tools: list[Tool]
     messages: list[Message]
+    stream_deltas: bool
     _provider_resolver: Callable[[str], tuple[LLMProvider, str]]
 
     def get_llm_provider(self) -> tuple[LLMProvider, str]:
@@ -38,6 +39,7 @@ class BaseStreamIterationHandler(StreamIterationHandler):
                 model=model_name,
                 messages=ctx.messages,
                 tools=ctx.tools,
+                stream_deltas=ctx.stream_deltas,
                 **kwargs
         ):
             yield message

@@ -1,6 +1,6 @@
 from .big_talk import BigTalk
 from .message import Message, UserMessage, SystemMessage, AssistantMessage, ToolUse, ToolResult, Text, Thinking, \
-    AssistantContentBlock, ToolMessage, AppMessage, InputMessage, OutputMessage
+    AssistantContentBlock, ToolMessage, AppMessage, InputMessage, OutputMessage, AssistantMessageDelta
 from .tool import Tool, tool, Property, EnumProperty, ArrayProperty, ObjectProperty, DictionaryProperty, \
     ToolParametersProperty, Tool, tool
 from .stream import StreamContext, StreamMiddleware, StreamHandler
@@ -13,4 +13,5 @@ __all__ = ['BigTalk', 'Message', 'UserMessage', 'SystemMessage', 'AssistantMessa
            'EnumProperty', 'ArrayProperty', 'ObjectProperty', 'DictionaryProperty', 'ToolParametersProperty',
            'ToolExecutionContext', 'ToolExecutionMiddleware', 'ToolMessage', 'AppMessage', 'InputMessage',
            'OutputMessage', 'ToolExecutionHandler', 'StreamHandler', 'StreamIterationContext',
-           'StreamIterationMiddleware', 'StreamIterationHandler', 'SuspensionError', 'BatchSuspendedException']
+           'StreamIterationMiddleware', 'StreamIterationHandler', 'SuspensionError', 'BatchSuspendedException',
+           'AssistantMessageDelta']

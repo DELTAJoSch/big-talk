@@ -64,6 +64,15 @@ class AssistantMessage(TypedDict):
     is_aggregate: bool
 
 
+class AssistantMessageDelta(TypedDict):
+    id: str
+    parent_id: str
+    role: Literal['assistant']
+    type: Literal['text', 'thinking', 'signature', 'tool_use_id', 'tool_use_name', 'tool_use_params']
+    is_aggregate: Literal[False]
+    delta: str
+
+
 InputMessage: TypeAlias = Union[UserMessage, SystemMessage, ToolMessage]
 
 OutputMessage: TypeAlias = Union[AssistantMessage, AppMessage]

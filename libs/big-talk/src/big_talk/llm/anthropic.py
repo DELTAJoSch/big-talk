@@ -3,12 +3,12 @@ from uuid import uuid4
 
 from anthropic import Omit, omit
 from anthropic.types import MessageParam, ToolResultBlockParam, ThinkingBlockParam, TextBlockParam, ToolUseBlockParam, \
-    ToolParam, ContentBlock
+    ToolParam, ContentBlock, RawContentBlockDelta
 
 from .llm_provider import LLMProvider
 from ..serialization import serialize_tool_result
 from ..tool import Tool
-from ..message import Message, AssistantContentBlock, ToolUse, Text, AssistantMessage, Thinking
+from ..message import Message, AssistantContentBlock, ToolUse, Text, AssistantMessage, Thinking, AssistantMessageDelta
 
 
 class AnthropicProvider(LLMProvider):
@@ -42,8 +42,9 @@ class AnthropicProvider(LLMProvider):
         return AssistantMessage(id=str(uuid4()), role='assistant', content=content, parent_id=last_user_message_id,
                                 is_aggregate=True)
 
-    async def stream(self, model: str, messages: Sequence[Message], tools: Sequence[Tool], **kwargs) \
-            -> AsyncGenerator[AssistantMessage, None]:
+    async def stream(self, model: str, messages: Sequence[Message], tools: Sequence[Tool], *,
+                     stream_deltas: bool = False, **kwargs) \
+            -> AsyncGenerator[AssistantMessage | AssistantMessageDelta, None]:
         system, converted, last_user_message_id = self._convert_messages(messages)
         tool_params = self._convert_tools(tools)
         tool_map = {tool.name: tool for tool in tools}
@@ -59,6 +60,12 @@ class AnthropicProvider(LLMProvider):
                     yield AssistantMessage(id=message_id, role='assistant', content=blocks,
                                            parent_id=last_user_message_id, is_aggregate=True)
                     blocks = []
+                    continue
+
+                if chunk.type == 'content_block_delta' and stream_deltas:
+                    delta = self._to_delta(chunk.delta, message_id, last_user_message_id)
+                    if delta:
+                        yield delta
                     continue
 
                 if chunk.type != 'content_block_stop':
@@ -140,3 +147,24 @@ class AnthropicProvider(LLMProvider):
         else:
             # TODO redacted thinking
             return None
+
+    @staticmethod
+    def _get_delta_content(delta: RawContentBlockDelta) -> tuple[str, str] | None:
+        if delta.type == 'text_delta':
+            return 'text', delta.text
+        elif delta.type == 'input_json_delta':
+            return 'tool_use_params', delta.partial_json
+        elif delta.type == 'thinking_delta':
+            return 'thinking', delta.thinking
+        elif delta.type == 'signature_delta':
+            return 'signature', delta.signature
+        return None
+
+    @staticmethod
+    def _to_delta(delta: RawContentBlockDelta, message_id: str, parent_id: str) -> AssistantMessageDelta | None:
+        content = AnthropicProvider._get_delta_content(delta)
+        if content is None:
+            return None
+        delta_type, delta_value = content
+        return AssistantMessageDelta(type=delta_type, id=message_id, role='assistant',
+                                     delta=delta_value, parent_id=parent_id, is_aggregate=False)

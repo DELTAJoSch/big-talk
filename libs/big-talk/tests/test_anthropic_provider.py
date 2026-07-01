@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from big_talk import SystemMessage, UserMessage, ToolMessage
+from big_talk import UserMessage, ToolMessage
 from big_talk.llm.anthropic import AnthropicProvider
-from big_talk.message import Message, ToolResult
+from big_talk.message import ToolResult
 
 
 # Mock the Anthropic stream events
@@ -87,6 +87,77 @@ async def test_anthropic_streaming(anthropic_provider):
     # Check Aggregate
     assert results[2]["is_aggregate"] is True
     assert len(results[2]["content"]) == 2  # Should contain both text and tool
+
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_content_block_delta(anthropic_provider):
+    """content_block_delta events produce AssistantMessageDelta objects."""
+    text_delta = MagicMock()
+    text_delta.type = 'text_delta'
+    text_delta.text = 'Hello'
+
+    mock_events = [
+        MagicMock(type='content_block_delta', delta=text_delta),
+        MagicMock(type='content_block_stop', content_block=MagicMock(type='text', text="Hello")),
+        MagicMock(type='message_stop'),
+    ]
+    anthropic_provider._client.messages.stream.return_value = MockStream(mock_events)
+
+    stream = anthropic_provider.stream("claude-3", [UserMessage(role="user", content="Hi", id="u1")], tools=[],
+                                       stream_deltas=True)
+    results = [msg async for msg in stream]
+
+    delta_msg = results[0]
+    assert delta_msg['role'] == 'assistant'
+    assert delta_msg['is_aggregate'] is False
+    assert delta_msg['type'] == 'text'
+    assert delta_msg['delta'] == 'Hello'
+
+
+def test_anthropic_to_delta_text():
+    delta = MagicMock()
+    delta.type = 'text_delta'
+    delta.text = 'hello'
+    result = AnthropicProvider._to_delta(delta, 'msg-1', 'parent-1')
+    assert result['type'] == 'text'
+    assert result['delta'] == 'hello'
+    assert result['id'] == 'msg-1'
+    assert result['parent_id'] == 'parent-1'
+    assert result['is_aggregate'] is False
+
+
+def test_anthropic_to_delta_tool_params():
+    delta = MagicMock()
+    delta.type = 'input_json_delta'
+    delta.partial_json = '{"x":'
+    result = AnthropicProvider._to_delta(delta, 'msg-1', 'parent-1')
+    assert result['type'] == 'tool_use_params'
+    assert result['delta'] == '{"x":'
+
+
+def test_anthropic_to_delta_thinking():
+    delta = MagicMock()
+    delta.type = 'thinking_delta'
+    delta.thinking = 'let me think...'
+    result = AnthropicProvider._to_delta(delta, 'msg-1', 'parent-1')
+    assert result['type'] == 'thinking'
+    assert result['delta'] == 'let me think...'
+
+
+def test_anthropic_to_delta_signature():
+    delta = MagicMock()
+    delta.type = 'signature_delta'
+    delta.signature = 'abc123'
+    result = AnthropicProvider._to_delta(delta, 'msg-1', 'parent-1')
+    assert result['type'] == 'signature'
+    assert result['delta'] == 'abc123'
+
+
+def test_anthropic_to_delta_unknown_returns_none():
+    delta = MagicMock()
+    delta.type = 'unknown_delta_type'
+    result = AnthropicProvider._to_delta(delta, 'msg-1', 'parent-1')
+    assert result is None
 
 
 def test_anthropic_init_kwargs():

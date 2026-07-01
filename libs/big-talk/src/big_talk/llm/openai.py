@@ -10,7 +10,7 @@ from openai.types.chat.chat_completion_message_function_tool_call_param import F
 
 from ..serialization import serialize_tool_result
 from ..tool import Tool
-from ..message import Message, AssistantContentBlock, Text, AssistantMessage, ToolUse
+from ..message import Message, AssistantContentBlock, Text, AssistantMessage, ToolUse, AssistantMessageDelta
 from .llm_provider import LLMProvider
 
 if TYPE_CHECKING:
@@ -66,8 +66,9 @@ class OpenAIProvider(LLMProvider):
         return AssistantMessage(id=str(uuid4()), role='assistant', content=blocks, parent_id=last_user_message_id,
                                 is_aggregate=True)
 
-    async def stream(self, model: str, messages: Sequence[Message], tools: Sequence[Tool], **kwargs) \
-            -> AsyncGenerator[AssistantMessage, None]:
+    async def stream(self, model: str, messages: Sequence[Message], tools: Sequence[Tool], *,
+                     stream_deltas: bool = False, **kwargs) \
+            -> AsyncGenerator[AssistantMessage | AssistantMessageDelta, None]:
         converted, last_user_message_id = self._convert_messages(messages)
         tool_params, tool_map = self._convert_tools(tools)
 
@@ -92,6 +93,8 @@ class OpenAIProvider(LLMProvider):
             delta = chunk.choices[0].delta
 
             if delta.content:
+                if stream_deltas:
+                    yield self._make_delta('text', delta.content, message_id, last_user_message_id)
                 text_buffer.append(delta.content)
 
             if delta.tool_calls:
@@ -131,10 +134,18 @@ class OpenAIProvider(LLMProvider):
 
                     current_tool_index = idx
                     if tool_chunk.id:
+                        if stream_deltas:
+                            yield self._make_delta('tool_use_id', tool_chunk.id, message_id, last_user_message_id)
                         current_tool_id = tool_chunk.id
                     if tool_chunk.function.name:
+                        if stream_deltas:
+                            yield self._make_delta('tool_use_name', tool_chunk.function.name, message_id,
+                                                   last_user_message_id)
                         current_tool_name = tool_chunk.function.name
                     if tool_chunk.function.arguments:
+                        if stream_deltas:
+                            yield self._make_delta('tool_use_params', tool_chunk.function.arguments, message_id,
+                                                   last_user_message_id)
                         current_tool_args.append(tool_chunk.function.arguments)
 
         if text_buffer:
@@ -167,6 +178,11 @@ class OpenAIProvider(LLMProvider):
             parent_id=last_user_message_id,
             is_aggregate=True
         )
+
+    @staticmethod
+    def _make_delta(type_: str, value: str, message_id: str, parent_id: str) -> AssistantMessageDelta:
+        return AssistantMessageDelta(type=type_, id=message_id, role='assistant',
+                                     delta=value, parent_id=parent_id, is_aggregate=False)
 
     @staticmethod
     def _convert_tools(tools: Sequence[Tool]) -> tuple[list[ChatCompletionFunctionToolParam], dict[str, Tool]]:
