@@ -1,5 +1,5 @@
 import asyncio
-from typing import Sequence, Any, AsyncGenerator, Callable, Iterable
+from typing import Sequence, Any, AsyncGenerator, Callable, Iterable, override, Literal, overload
 from uuid import uuid4
 
 from .loop import extract_tool_uses, use_tools
@@ -8,7 +8,7 @@ from .stream import StreamMiddlewareStack, BaseStreamHandler, StreamContext
 from .stream_iteration import StreamIterationMiddlewareStack, BaseStreamIterationHandler
 from .tool import Tool
 from .llm import LLMProvider, LLMProviderFactory
-from .message import Message, ToolUse, ToolMessage
+from .message import Message, ToolUse, ToolMessage, AssistantMessageDelta
 from .tool_execution import ToolExecutionMiddlewareStack, BaseToolExecutionHandler, ToolExecutionContext
 
 DEFAULT_MAX_ITERATIONS = 10
@@ -99,14 +99,49 @@ class BigTalk:
                 )
 
                 current_history.append(tool_result_message)
-            
+
         return current_history[len(messages):]
+
+    @overload
+    async def stream(self,
+                     model: str,
+                     messages: Sequence[Message],
+                     tools: Sequence[Callable | Tool] = None,
+                     max_iterations: int = DEFAULT_MAX_ITERATIONS,
+                     *,
+                     stream_deltas: Literal[False] = False,
+                     **kwargs: Any) -> AsyncGenerator[Message, None]:
+        ...
+
+    @overload
+    async def stream(self,
+                     model: str,
+                     messages: Sequence[Message],
+                     tools: Sequence[Callable | Tool] = None,
+                     max_iterations: int = DEFAULT_MAX_ITERATIONS,
+                     *,
+                     stream_deltas: Literal[True],
+                     **kwargs: Any) -> AsyncGenerator[Message | AssistantMessageDelta, None]:
+        ...
+
+    @overload
+    async def stream(self,
+                     model: str,
+                     messages: Sequence[Message],
+                     tools: Sequence[Callable | Tool] = None,
+                     max_iterations: int = DEFAULT_MAX_ITERATIONS,
+                     *,
+                     stream_deltas: bool,
+                     **kwargs: Any) -> AsyncGenerator[Message | AssistantMessageDelta, None]:
+        ...
 
     async def stream(self,
                      model: str,
                      messages: Sequence[Message],
                      tools: Sequence[Callable | Tool] = None,
                      max_iterations: int = DEFAULT_MAX_ITERATIONS,
+                     *,
+                     stream_deltas: bool = False,
                      **kwargs: Any) -> AsyncGenerator[Message, None]:
         if not any(message['role'] == 'user' for message in messages):
             raise ValueError('At least one user message is required to generate a response.')
@@ -121,6 +156,7 @@ class BigTalk:
             model=model,
             tools=normalized_tools,
             messages=list(messages),
+            stream_deltas=stream_deltas,
             _provider_resolver=self._get_llm_provider,
             max_iterations=max_iterations,
             _stream_iteration_handler=stream_iteration_handler,
