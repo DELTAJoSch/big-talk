@@ -149,42 +149,22 @@ class AnthropicProvider(LLMProvider):
             return None
 
     @staticmethod
-    def _to_delta(delta: RawContentBlockDelta, message_id: str, parent_id: str) -> AssistantMessageDelta | None:
+    def _get_delta_content(delta: RawContentBlockDelta) -> tuple[str, str] | None:
         if delta.type == 'text_delta':
-            return AssistantMessageDelta(
-                type='text',
-                id=message_id,
-                role='assistant',
-                delta=delta.text,
-                parent_id=parent_id,
-                is_aggregate=False
-            )
+            return 'text', delta.text
         elif delta.type == 'input_json_delta':
-            return AssistantMessageDelta(
-                type='tool_use_params',
-                id=message_id,
-                role='assistant',
-                delta=delta.partial_json,
-                parent_id=parent_id,
-                is_aggregate=False
-            )
+            return 'tool_use_params', delta.partial_json
         elif delta.type == 'thinking_delta':
-            return AssistantMessageDelta(
-                type='thinking',
-                id=message_id,
-                role='assistant',
-                delta=delta.thinking,
-                parent_id=parent_id,
-                is_aggregate=False
-            )
+            return 'thinking', delta.thinking
         elif delta.type == 'signature_delta':
-            return AssistantMessageDelta(
-                type='signature',
-                id=message_id,
-                role='assistant',
-                delta=delta.signature,
-                parent_id=parent_id,
-                is_aggregate=False
-            )
-        else:
+            return 'signature', delta.signature
+        return None
+
+    @staticmethod
+    def _to_delta(delta: RawContentBlockDelta, message_id: str, parent_id: str) -> AssistantMessageDelta | None:
+        content = AnthropicProvider._get_delta_content(delta)
+        if content is None:
             return None
+        delta_type, delta_value = content
+        return AssistantMessageDelta(type=delta_type, id=message_id, role='assistant',
+                                     delta=delta_value, parent_id=parent_id, is_aggregate=False)
