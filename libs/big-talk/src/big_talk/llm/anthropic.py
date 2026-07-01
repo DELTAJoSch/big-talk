@@ -62,7 +62,7 @@ class AnthropicProvider(LLMProvider):
                     blocks = []
                     continue
 
-                if chunk.type == 'content_block_delta':
+                if chunk.type == 'content_block_delta' and stream_deltas:
                     delta = self._to_delta(chunk.delta, message_id, last_user_message_id)
                     if delta:
                         yield delta

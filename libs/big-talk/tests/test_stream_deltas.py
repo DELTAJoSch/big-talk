@@ -1,6 +1,6 @@
 import pytest
 
-from big_talk import AssistantMessage, AssistantMessageDelta, Text, ToolUse, UserMessage
+from big_talk import AssistantMessage, AssistantMessageDelta, Text, ToolUse
 
 
 @pytest.mark.asyncio

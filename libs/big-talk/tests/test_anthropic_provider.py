@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from big_talk import SystemMessage, UserMessage, ToolMessage
+from big_talk import UserMessage, ToolMessage
 from big_talk.llm.anthropic import AnthropicProvider
-from big_talk.message import Message, ToolResult, AssistantMessageDelta
+from big_talk.message import ToolResult
 
 
 # Mock the Anthropic stream events
@@ -103,7 +103,8 @@ async def test_anthropic_stream_content_block_delta(anthropic_provider):
     ]
     anthropic_provider._client.messages.stream.return_value = MockStream(mock_events)
 
-    stream = anthropic_provider.stream("claude-3", [UserMessage(role="user", content="Hi", id="u1")], tools=[])
+    stream = anthropic_provider.stream("claude-3", [UserMessage(role="user", content="Hi", id="u1")], tools=[],
+                                       stream_deltas=True)
     results = [msg async for msg in stream]
 
     delta_msg = results[0]

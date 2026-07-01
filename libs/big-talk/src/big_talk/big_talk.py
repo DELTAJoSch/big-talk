@@ -1,5 +1,5 @@
 import asyncio
-from typing import Sequence, Any, AsyncGenerator, Callable, Iterable, override, Literal, overload
+from typing import Sequence, Any, AsyncGenerator, Callable, Iterable, Literal, overload
 from uuid import uuid4
 
 from .loop import extract_tool_uses, use_tools
@@ -142,7 +142,7 @@ class BigTalk:
                      max_iterations: int = DEFAULT_MAX_ITERATIONS,
                      *,
                      stream_deltas: bool = False,
-                     **kwargs: Any) -> AsyncGenerator[Message, None]:
+                     **kwargs: Any) -> AsyncGenerator[Message | AssistantMessageDelta, None]:
         if not any(message['role'] == 'user' for message in messages):
             raise ValueError('At least one user message is required to generate a response.')
 
